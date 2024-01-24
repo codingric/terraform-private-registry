@@ -30,5 +30,5 @@ func main() {
 	router.GET("/v1/providers/:namespace/:name/versions", versions)
 	router.GET("/v1/providers/:namespace/:name/:version/download/:os/:arch", _package)
 
-	router.Run("localhost:8080")
+	router.Run("0.0.0.0:8080")
 }
