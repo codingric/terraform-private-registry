@@ -1,1 +1,4 @@
 /.vscode
+.terraform*
+/gpg
+*.tf

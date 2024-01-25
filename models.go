@@ -14,9 +14,9 @@ type Platform struct {
 	Os                  string     `json:"os"`
 	Arch                string     `json:"arch"`
 	Filename            string     `json:"filename"`
-	DownloadUrl         string     `json:"download_url"`
-	ShasumsUrl          string     `json:"shasums_url"`
-	ShasumsSignatureUrl string     `json:"shasums_signature_url"`
+	DownloadUrl         string     `json:"download_url,omitempty"`
+	ShasumsUrl          string     `json:"shasums_url,omitempty"`
+	ShasumsSignatureUrl string     `json:"shasums_signature_url,omitempty"`
 	Shasum              string     `json:"shasum"`
 	SigningKey          SigningKey `json:"signing_keys"`
 }
