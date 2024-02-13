@@ -6,6 +6,7 @@ COPY *.go .
 RUN go build -o /terraform-private-registry
 
 FROM alpine:3.18
+LABEL org.opencontainers.image.source=https://github.com/altavec/terraform-private-registry
 COPY --from=build /terraform-private-registry /terraform-private-registry
 EXPOSE 8080
 ENTRYPOINT ["/terraform-private-registry"]

@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -69,6 +70,7 @@ func save(c *gin.Context) {
 	provider, err := loadProviderJson(ns, name)
 	if err != nil {
 		provider = &VersionJson{}
+		log.Debug().Msg("No provider found, creating new one")
 	}
 
 	binary_name := fmt.Sprintf("%s_%s", uploaded, version)
@@ -76,24 +78,32 @@ func save(c *gin.Context) {
 	sum_name := fmt.Sprintf("%s_%s_SHA256SUMS", uploaded, version)
 	sig_name := fmt.Sprintf("%s_%s_SHA256SUMS.sig", uploaded, version)
 	zip_content, _ := compressFile(content, binary_name)
-
-	saveToS3(fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, zip_name), zip_content)
+	zip_obj := fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, zip_name)
+	saveToS3(zip_obj, zip_content)
 
 	sum := generateShaSum(zip_content)
-	sum_content := getFromS3(fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sum_name))
+	sum_content, err := getFromS3(fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sum_name))
+	if err != nil {
+		sum_content = []byte{}
+	}
 	sum_content = []byte(fmt.Sprintf("%s%x  %s\n", sum_content, sum, zip_name))
-
-	saveToS3(fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sum_name), sum_content)
+	sum_obj := fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sum_name)
+	saveToS3(sum_obj, sum_content)
 
 	sign_content, _ := signGpg(sum_content)
-	saveToS3(fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sig_name), sign_content)
+	sign_obj := fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sig_name)
+	saveToS3(sign_obj, sign_content)
 
 	platform := Platform{
-		Os:       _os,
-		Arch:     arch,
-		Filename: zip_name,
-		Shasum:   fmt.Sprintf("%x", sum),
+		Os:                  _os,
+		Arch:                arch,
+		Filename:            zip_name,
+		Shasum:              fmt.Sprintf("%x", sum),
+		DownloadUrl:         zip_name,
+		ShasumsUrl:          sum_name,
+		ShasumsSignatureUrl: sig_name,
 	}
+	log.Info().Str("os", _os).Str("arch", arch).Str("filename", zip_name).Str("sha", fmt.Sprintf("%x", sum)).Msg("New platform")
 
 	platform.SigningKey.GpgPublicKey = append(platform.SigningKey.GpgPublicKey, GpgPublicKey{
 		KeyId:      publicKeyId(),
@@ -175,6 +185,7 @@ func loadProviderJson(namespace string, name string) (*VersionJson, error) {
 
 	resp, err := client.GetObject(context.TODO(), req)
 	if err != nil {
+		log.Error().Err(err).Str("namespace", namespace).Str("name", name).Str("object", filepath).Msg("Failed to get the provider file")
 		return nil, err
 	}
 
@@ -188,6 +199,7 @@ func loadProviderJson(namespace string, name string) (*VersionJson, error) {
 	var r VersionJson
 	err = json.Unmarshal(data, &r)
 	if err != nil {
+		log.Error().Err(err).Str("namespace", namespace).Str("name", name).Str("object", filepath).Msg("Failed to Unmarshal the provider file")
 		return nil, err
 	}
 
@@ -200,19 +212,22 @@ func saveToS3(path string, content []byte) {
 		Key:    aws.String(path),
 		Body:   bytes.NewReader(content),
 	}
-	result, err := client.PutObject(context.TODO(), req)
+	_, err := client.PutObject(context.TODO(), req)
 	if err != nil {
-		log.Fatal("saveToS3", err, result)
+		log.Error().Err(err).Str("key", path).Msg("Unable to save to S3")
+		return
 	}
+	log.Debug().Str("bucket", os.Getenv("BUCKET_NAME")).Str("key", path).Msg("Saved object to S3")
 }
 
-func getFromS3(path string) (content []byte) {
+func getFromS3(path string) (content []byte, err error) {
 	req := &s3.GetObjectInput{
 		Bucket: aws.String(os.Getenv("BUCKET_NAME")),
 		Key:    aws.String(path),
 	}
 	resp, err := client.GetObject(context.TODO(), req)
 	if err != nil {
+		log.Error().Err(err).Str("key", path).Msg("Unable to get from S3")
 		return
 	}
 
@@ -220,8 +235,10 @@ func getFromS3(path string) (content []byte) {
 
 	content, err = io.ReadAll(resp.Body)
 	if err != nil {
+		log.Error().Err(err).Str("key", path).Msg("Unable to read object from S3")
 		return
 	}
+	log.Debug().Str("bucket", os.Getenv("BUCKET_NAME")).Str("key", path).Msg("Read object from S3")
 	return
 }
 
