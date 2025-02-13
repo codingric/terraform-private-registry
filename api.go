@@ -63,6 +63,7 @@ func save(c *gin.Context) {
 	file, header, _ := c.Request.FormFile(file_index)
 	defer file.Close()
 	uploaded := filepath.Base(header.Filename)
+	log.Debug().Msg("Uploaded file: " + header.Filename)
 
 	content, _ := io.ReadAll(file)
 
@@ -74,12 +75,23 @@ func save(c *gin.Context) {
 	}
 
 	binary_name := fmt.Sprintf("%s_%s", uploaded, version)
+	binary_loc := binary_name
+
+	f, _ := os.Create(binary_loc)
+	f.Write(content)
+	f.Close()
+	os.Chmod(binary_loc, 0755)
+
 	zip_name := fmt.Sprintf("%s_%s_%s_%s.zip", uploaded, version, _os, arch)
+
+	compressFile(binary_loc, zip_name)
+
 	sum_name := fmt.Sprintf("%s_%s_SHA256SUMS", uploaded, version)
 	sig_name := fmt.Sprintf("%s_%s_SHA256SUMS.sig", uploaded, version)
-	zip_content, _ := compressFile(content, binary_name)
+	zip_content, _ := os.ReadFile(zip_name)
 	zip_obj := fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, zip_name)
 	saveToS3(zip_obj, zip_content)
+	os.Remove(zip_name)
 
 	sum := generateShaSum(zip_content)
 	sum_content, err := getFromS3(fmt.Sprintf("terraform-registry/binaries/%s/%s/%s", ns, name, sum_name))
@@ -215,6 +227,10 @@ func saveToS3(path string, content []byte) {
 	_, err := client.PutObject(context.TODO(), req)
 	if err != nil {
 		log.Error().Err(err).Str("key", path).Msg("Unable to save to S3")
+		n := strings.Replace(path, "/", ".", -1)
+		f, _ := os.Create(n)
+		f.Write(content)
+		f.Close()
 		return
 	}
 	log.Debug().Str("bucket", os.Getenv("BUCKET_NAME")).Str("key", path).Msg("Saved object to S3")

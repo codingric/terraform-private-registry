@@ -3,7 +3,7 @@ WORKDIR /app
 COPY go.* .
 RUN go mod download
 COPY *.go .
-RUN go build -o /terraform-private-registry
+RUN CGO_ENABLED=0 go build -o /terraform-private-registry
 
 FROM alpine:3.18
 LABEL org.opencontainers.image.source=https://github.com/altavec/terraform-private-registry

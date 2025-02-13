@@ -2,25 +2,52 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
+	"io"
+	"os"
+	"path/filepath"
 )
 
-func compressFile(contents []byte, name string) ([]byte, error) {
-	buf := new(bytes.Buffer)
+func compressFile(src, dest string) error {
+	archive, _ := os.Create("1" + dest)
+
+	bn := filepath.Base(src)
 
 	// Create a new zip archive.
-	w := zip.NewWriter(buf)
-	f, err := w.Create(name)
+	w := zip.NewWriter(archive)
+	zf, err := w.Create(bn)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	_, err = f.Write(contents)
+
+	f, err := os.Open(src)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
+	defer f.Close()
+
+	_, err = io.Copy(zf, f)
+	if err != nil {
+		return err
+	}
+
 	err = w.Close()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return buf.Bytes(), nil
+
+	r, _ := zip.OpenReader("1" + dest)
+	defer r.Close()
+
+	ff, _ := os.Create(dest)
+	defer f.Close()
+
+	w2 := zip.NewWriter(ff)
+	defer w2.Close()
+
+	for _, f := range r.File {
+		f.SetMode(0777)
+		w2.Copy(f)
+	}
+	os.Remove("1" + dest)
+	return nil
 }
